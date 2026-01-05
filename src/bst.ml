@@ -1,4 +1,4 @@
-type 'elt node_m = 
+type 'elt node = 
 Null
 | Node of {
     mutable mkey : bool * 'elt option;  (*None means inf, Some x means x*)
@@ -8,7 +8,7 @@ Null
 }
 
 (* might need to de-atomicify node_m *)
-and 'elt node = 'elt node_m Atomic.t
+(* and 'elt node = 'elt node_m Atomic.t *)
 
 type edge_type = 
 | Left 
@@ -93,7 +93,7 @@ let print_edge edge _printfn =
   | Edge {parent; child ; which} -> (
     let (_, _, _, _, p) = Atomic.get parent in
     let (_, _, _, _, c) = Atomic.get child in
-    print_string "parent: "; print_node (Atomic.get p) _printfn; print_string "child: "; print_node (Atomic.get c) _printfn; print_string "type: "; print_which which
+    print_string "parent: "; print_node p _printfn; print_string "child: "; print_node c _printfn; print_string "type: "; print_which which
   )
 
 let print_tuple tuple _printfn = 
@@ -107,7 +107,7 @@ match Atomic.get tuple with
 )
 
 let rec inorder_helper root = 
-  match Atomic.get root with 
+  match root with 
     | Null -> []
     | Node {mkey = (_, key); lchild; rchild; _} -> 
         let (l, _, _, _, left) = Atomic.get lchild in
@@ -134,8 +134,8 @@ let print_inorder root _printfn =
    in print_string "inorder: "; printer list _printfn; print_endline "" 
 
 let create ~compare () = 
-  let t_node = Atomic.make (Node {mkey = (false, None); lchild = Atomic.make (true, false, false, false, Atomic.make Null); rchild = Atomic.make (true, false, false, false, Atomic.make Null); replace = false}) in
-  let s_node = Atomic.make (Node {mkey = (false, None); lchild = Atomic.make (true, false, false, false, Atomic.make Null); rchild = Atomic.make (false, false, false, false, t_node); replace = false}) in
+  let t_node = (Node {mkey = (false, None); lchild = Atomic.make (true, false, false, false, Null); rchild = Atomic.make (true, false, false, false, Null); replace = false}) in
+  let s_node = (Node {mkey = (false, None); lchild = Atomic.make (true, false, false, false, Null); rchild = Atomic.make (false, false, false, false, t_node); replace = false}) in
   let state = Domain.DLS.new_key (fun () ->
       {
         target_key = None ;
@@ -151,7 +151,7 @@ let create ~compare () =
         }
       }
     ) in 
-  {compare ; root = Atomic.make (Node {mkey = (false, None); lchild = Atomic.make (true, false, false, false, Atomic.make Null); rchild = Atomic.make (false, false, false, false, s_node); replace = false}) ; my_state = state}
+  {compare ; root = (Node {mkey = (false, None); lchild = Atomic.make (true, false, false, false, Null); rchild = Atomic.make (false, false, false, false, s_node); replace = false}) ; my_state = state}
 
 let seek (key : 'elt) (srecord : 'elt seek_record ref) (tree : 'elt t)  = 
   begin
@@ -159,38 +159,38 @@ let seek (key : 'elt) (srecord : 'elt seek_record ref) (tree : 'elt t)  =
     let cmp = tree.compare in 
     let _R = tree.root in (* Node R*)
     let _S = (*Node S *)
-      begin match Atomic.get _R with 
+      begin match _R with 
       | Null -> Null (* Is this correct? *)
-      | Node {mkey = _ ; lchild = _ ; rchild; replace = _} -> let (_ , _ , _ , _ , rnode) = Atomic.get rchild in (Atomic.get rnode) 
+      | Node {mkey = _ ; lchild = _ ; rchild; replace = _} -> let (_ , _ , _ , _ , rnode) = Atomic.get rchild in rnode 
       end  
       in 
     let _T = (* Node T *)
       begin match _S with 
       | Null -> Null (* Is this correct sir? *)
-      | Node {mkey = _; lchild = _ ; rchild; replace = _} -> let (_ , _ , _ , _ , rnode) = Atomic.get rchild in (Atomic.get rnode)  
+      | Node {mkey = _; lchild = _ ; rchild; replace = _} -> let (_ , _ , _ , _ , rnode) = Atomic.get rchild in rnode  
       end 
       in 
     let p_anch_record : 'elt anchor_record ref = (* This should be in DLS ?*)
-      ref {anchor_node = Atomic.make _S ; anchor_key = None} in 
+      ref {anchor_node = _S ; anchor_key = None} in 
     let p_seek : 'elt seek_record ref =  (* This should be in DLS ?*)
       ref ({last_edge = !srecord.last_edge ; plast_edge = !srecord.plast_edge ; inject_edge = !srecord.inject_edge }) in 
 
     let out_flag = ref true in (* Flag for outermost while loop *)
     while !out_flag do 
         let track_plast_edge : 'elt edge ref = (* This should be in DLS ?*) (* pLastEdge *)
-          ref (Edge {parent = Atomic.make (false, false, false, false, _R) ; child = Atomic.make (false, false, false, false, Atomic.make _S) ; which = Right}) in 
+          ref (Edge {parent = Atomic.make (false, false, false, false, _R) ; child = Atomic.make (false, false, false, false, _S) ; which = Right}) in 
         let track_last_edge : 'elt edge ref = (* This should be in DLS ?*) (* lastEdge *)
-          ref (Edge {parent = Atomic.make (false, false, false, false, Atomic.make _S) ; child = Atomic.make (false, false, false, false, Atomic.make _T) ; which = Right}) in 
+          ref (Edge {parent = Atomic.make (false, false, false, false, _S) ; child = Atomic.make (false, false, false, false, _T) ; which = Right}) in 
         let curr : (bool* bool* bool* bool *'elt node) Atomic.t ref = (* This should be in DLS ?*)
-          ref (Atomic.make (false, false, false, false, Atomic.make _T)) in 
+          ref (Atomic.make (false, false, false, false, _T)) in 
         let anch_record : 'elt anchor_record = (* This should be in DLS ? , nah this aint ref but it has ref? Idk mannn *) (* anchorRecord *)
-          {anchor_node = Atomic.make _S ; anchor_key = None} in 
+          {anchor_node = _S ; anchor_key = None} in 
         let in_flag = ref true in (* Flag for innermost while loop *)
         while !in_flag do 
             (* Read the key stored in the current node *)
             let (_, _, _, _, curr_node) = Atomic.get !curr in
             let ckey = 
-              begin match (Atomic.get curr_node) with 
+              begin match curr_node with 
               | Null -> raise (failwith "Gah! Null at ckey!")
               | Node {mkey = (_ , reqkey) ; lchild = _ ; rchild = _ ; replace = _} -> reqkey
               end in 
@@ -205,12 +205,12 @@ let seek (key : 'elt) (srecord : 'elt seek_record ref) (tree : 'elt t)  =
             let which = if cmpval < 0 then (Left) else (Right) in 
             let next = 
               begin match which with 
-                Left -> begin match (Atomic.get curr_node) with 
-                        | Null -> Atomic.make (false , false , false , false , Atomic.make Null)
+                | Left -> begin match curr_node with 
+                        | Null -> Atomic.make (false, false, false, false, Null)
                         | Node {mkey = _ ; lchild ; rchild = _ ; replace = _ } -> lchild 
                         end
-                | Right -> begin match (Atomic.get curr_node) with 
-                        | Null -> Atomic.make (false , false , false , false , Atomic.make Null)
+                | Right -> begin match curr_node with 
+                        | Null -> Atomic.make (false, false, false, false, Null)
                         | Node {mkey = _ ; lchild = _ ; rchild  ; replace = _ } -> rchild 
                         end
               end
@@ -252,13 +252,13 @@ let seek (key : 'elt) (srecord : 'elt seek_record ref) (tree : 'elt t)  =
         if (!out_flag) then
         begin
           let (_ , _ , d , p , _) = 
-            begin match (Atomic.get (anch_record.anchor_node)) with 
+            begin match (anch_record.anchor_node) with 
             | Null -> raise (failwith "Wat the hail oooo ooo 2") (* Baccha I'm abusing this atp *)
             | Node {mkey = _ ; lchild = _ ; rchild ; replace = _} -> Atomic.get rchild 
             end in 
           if not (d) && not (p) then 
             let (_ , akey) = 
-              begin match (Atomic.get (anch_record.anchor_node)) with 
+              begin match (anch_record.anchor_node) with 
               | Null -> raise (failwith "Wat the hail oooo ooo 3") (* No comments this time *)
               | Node {mkey ; lchild = _ ; rchild = _ ; replace = _} -> mkey 
               end in 
@@ -292,7 +292,7 @@ let _find (tree : 'elt t) (key : 'elt) (_printfn : 'elt -> unit) =
     in seek key my_srecord tree;
     let node =  match ((!my_srecord).last_edge) with
     | Null_edge -> Null
-    | Edge{child;_} -> let (_, _, _, _, child) = Atomic.get child in Atomic.get child
+    | Edge{child;_} -> let (_, _, _, _, child) = Atomic.get child in child
     in 
     let nkey = 
       match node with
@@ -314,7 +314,7 @@ begin
       | Null_edge -> raise (failwith "Null edge upd_mode1")
       | Edge {parent =_ ; child  ; which = _} -> let (_ , _ , _ , _ , childnode) = Atomic.get child  in childnode
       end in 
-      begin match Atomic.get node with 
+      begin match node with 
       | Null -> raise (failwith "Null node upd_mode2")
       | Node {mkey = _ ; lchild = _ ; rchild = _ ; replace} -> 
         if replace then (Domain.DLS.get tree.my_state).mode <- Cleanup else (Domain.DLS.get tree.my_state).mode <- Discover
@@ -333,19 +333,19 @@ begin
     | Edge {parent = _ ; child ; which = _} -> let (_ , _ , _ , _ , childnode) = Atomic.get child in childnode
     end in 
   let (lN , _ , _ , _ , _) = 
-    begin match Atomic.get node with 
+    begin match node with 
     | Null -> raise (failwith "Null node itaum1") 
     | Node {mkey = _ ; lchild ; rchild = _ ; replace = _} -> Atomic.get lchild
     end in 
   let (rN , _ , _ , _ , _) = 
-    begin match Atomic.get node with 
+    begin match node with 
     | Null -> raise (failwith "Null node itaum1") 
     | Node {mkey = _ ; lchild = _ ; rchild  ; replace = _} -> Atomic.get rchild
     end in 
   if lN || rN then 
     begin 
       let (m , _) = 
-      begin match Atomic.get node with 
+      begin match node with 
       | Null -> raise (failwith "Null node itaum1") 
       | Node {mkey ; lchild = _ ; rchild = _  ; replace = _} -> mkey
       end in
@@ -371,7 +371,7 @@ let find_smallest (tree: 'elt t) (_printfn : 'elt -> unit) =
   let srecord = (Domain.DLS.get tree.my_state).succ_record in
   let right = (
     let (_, _, _, _, node) = Atomic.get node in
-    match Atomic.get node with 
+    match node with 
     | Null -> raise (failwith "Null node in failwith")
     | Node {rchild;_} -> rchild
   ) in
@@ -392,7 +392,7 @@ let find_smallest (tree: 'elt t) (_printfn : 'elt -> unit) =
       ) in
       let left = (
         let (_, _, _, _, child) = Atomic.get curr in
-        match Atomic.get child with
+        match child with
         | Null -> raise (failwith "Another null in find smalles")
         | Node {lchild; _} -> lchild
       ) in
@@ -429,7 +429,7 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
                 | Edge {parent = _ ; child ; which = _} -> Atomic.get child 
                 end in
     let (_, _, _, _, tnode) = tnode_tuple in
-    let nkey = begin match Atomic.get tnode with
+    let nkey = begin match tnode with
                   | Null -> raise (failwith "Null Node 1")
                   | Node {mkey = (_ , skey) ; lchild = _ ; rchild = _ ; replace = _} -> skey
                   end in
@@ -445,12 +445,12 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
         out_flag := false ;
       end
     else 
-      let newnode = Atomic.make (Node {mkey = (false , Some key) ; lchild = Atomic.make (true , false , false , false , Atomic.make Null) ; rchild = Atomic.make (true , false , false , false , Atomic.make Null) ; replace = false}) in 
+      let newnode = (Node {mkey = (false , Some key) ; lchild = Atomic.make (true, false, false, false, Null) ; rchild = Atomic.make (true, false, false, false, Null) ; replace = false}) in 
       let (address ,which) = begin match !target_record.inject_edge with 
                   | Null_edge -> raise (failwith "Null Edge 2")
                   | Edge {parent = _ ; child ; which} -> (Atomic.get child ,which)
                   end in 
-      let before = begin match Atomic.get tnode with 
+      let before = begin match tnode with 
                   | Null -> raise (failwith "Null Node 2")
                   | Node {mkey = _ ; lchild ; rchild ; replace = _} -> match which with 
                   | Left -> lchild 
@@ -459,7 +459,7 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
       let result = Atomic.compare_and_set before address (false , false , false , false , newnode) in (* Does this even work? Idk I shall become theist *)
       if result then (out_flag := false ; retval := true);
       let (_, _, d, p, _) = (
-        match Atomic.get tnode with
+        match tnode with
         | Null -> raise (failwith "yet another null node")
         | Node {lchild; rchild; _} -> (
           match which with
@@ -486,7 +486,7 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
       (*read the mark flag of the target node*)
       let (m, _) = (
         let (_, _, _, _, cnode) = node in
-        match Atomic.get cnode with
+        match cnode with
         | Null -> raise (failwith "Null node, why?")
         | Node {mkey;_} -> mkey
       ) in 
@@ -507,7 +507,7 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
         (*read the mark flag of the key under deletion*)
         let (m, _) = (
         let (_, _, _, _, cnode) = node in
-          match Atomic.get cnode with
+          match cnode with
           | Null -> raise (failwith "Ayyo, another Null node. Why?")
           | Node {mkey;_} -> mkey
         ) in 
@@ -524,7 +524,7 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
             ) in
             (
               let (_, _, _, _, lchild) = Atomic.get succ_child in
-              match Atomic.get lchild with
+              match lchild with
               | Null -> raise (failwith "Null nodeeee")
               | Node {lchild;_} -> lchild
             )
@@ -532,11 +532,7 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
           let newnode = (
             match node with (_, _, _, _, node) -> (true, false, false, true, node)
           ) in
-          (* print_string "cas node: "; print_tuple casnode _printfn;
-          print_string "old node: "; print_tuple (Atomic.make left) _printfn;
-          print_string "new node: "; print_tuple (Atomic.make newnode) _printfn; *)
           let result = Atomic.compare_and_set casnode left newnode in
-          (* print_tuple casnode _printfn; *)
           if result then out_flag := false
           else (
             (*attempt to mark the edge failed; recover from the failure and retry if needed*)
@@ -546,7 +542,7 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
               | Edge {child;_} -> (
                 match Atomic.get child with
                 | (_, _, _, _, cnode) -> (
-                  match Atomic.get cnode with
+                  match cnode with
                   | Null -> raise (failwith "Nulllnode")
                   | Node {lchild;_} -> Atomic.get lchild
                 )
@@ -558,7 +554,6 @@ let rec _add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) =
         )
       ) 
     done;
-    (* print_inorder tree _printfn; *)
     update_mode tree ;
     (* print_endline "************exited fams************"; *)
   end
@@ -588,7 +583,7 @@ and mark_child_edge (tree : 'elt t) (which : edge_type) (_printfn : 'elt -> unit
     while !out_flag do
       let addr = (
         let (_, _, _, _, node) = Atomic.get node in 
-        match Atomic.get node with
+        match node with
         | Null -> raise (failwith "mark child edge null node")
         | Node {lchild; rchild; _} -> (
           match which with 
@@ -627,7 +622,7 @@ and mark_child_edge (tree : 'elt t) (which : edge_type) (_printfn : 'elt -> unit
         (*you'll only reach here if non-null flags are off, so peace: This is in context of the given pseudocode*)
         let oldnode = (
           let (_, _, _, _, node) = Atomic.get node in 
-          match Atomic.get node with
+          match node with
           | Null -> raise (failwith "mark child edge null node")
           | Node {lchild; rchild; _} -> (
             match which with 
@@ -646,7 +641,7 @@ and mark_child_edge (tree : 'elt t) (which : edge_type) (_printfn : 'elt -> unit
        ) in
        let currnode = (
           let (_, _, _, _, node) = Atomic.get node in 
-          match Atomic.get node with
+          match node with
           | Null -> raise (failwith "mark child edge null node")
           | Node {lchild; rchild; _} -> (
             match which with 
@@ -654,11 +649,8 @@ and mark_child_edge (tree : 'elt t) (which : edge_type) (_printfn : 'elt -> unit
             | Right -> rchild
           )
        ) in
-       (* print_string "old node: "; print_tuple (Atomic.make oldnode) _printfn;
-       print_string "new node: "; print_tuple (Atomic.make newnode) _printfn;
-       print_string "node before CAS: "; print_tuple currnode _printfn; *)
+       
        retval := Atomic.compare_and_set currnode oldnode newnode;
-       (* print_string "node after CAS: "; print_tuple currnode _printfn; *)
        if (!retval) then out_flag := false;
       )
     done;
@@ -677,7 +669,7 @@ and inject (tree : 'elt t) (_printfn : 'elt -> unit) =
       | Edge {parent;child;which} -> (Atomic.get parent, child, which)
     ) in
     let curr_node = (
-      match Atomic.get parent with
+      match parent with
       | Null -> raise (failwith "Null parent")
       | Node {lchild;rchild;_} -> (
         match which with 
@@ -695,7 +687,7 @@ and inject (tree : 'elt t) (_printfn : 'elt -> unit) =
     if not result then (
       (*unable to set the intent flag; help if needed*)
       let (_, i, d, p, _) = (
-        match Atomic.get parent with
+        match parent with
         | Null -> raise (failwith "Null parent 2")
         | Node {lchild;rchild;_} -> (
           match which with 
@@ -735,7 +727,7 @@ begin
       begin match !succ_edge with 
       | Null_edge -> raise (failwith "Null edge rms2")
       | Edge {parent = _ ; child  ; which = _} -> let  (_ , _ , _ , _ , childnode) = Atomic.get child in
-        begin match Atomic.get childnode with 
+        begin match childnode with 
         | Null -> raise (failwith "Null Node child rms3")
         | Node {mkey = _ ; lchild ; rchild = _ ; replace = _} -> Atomic.get lchild
         end
@@ -743,9 +735,9 @@ begin
     (*!!!!!!!!!!!!!!!!!!!!!!!!!!!THIS IS NOT PERMANENT I REPLACED <> WITH NOT ==!!!!!!!!!!!!!!!!!!!!!!!!!*)
     if not (p) || not (address == !node1) then 
       begin
-        begin match Atomic.get !node1 with 
+        begin match !node1 with 
         | Null -> raise (failwith "Null node rms4")
-        | Node {mkey  ; lchild ; rchild  ; replace = _} -> ignore( Atomic.compare_and_set (!node1) (Atomic.get !node1) (Node {mkey ; lchild ; rchild ; replace = true}))
+        | Node {mkey  ; lchild ; rchild  ; replace = _} -> ignore(node1 := (Node {mkey ; lchild ; rchild ; replace = true}))
         end ;
         update_mode tree ;
         retflag := true 
@@ -754,17 +746,17 @@ begin
     else 
       begin 
         ignore(mark_child_edge tree Right _printfn) ; 
-        begin match Atomic.get !node1 with 
+        begin match !node1 with 
         | Null -> raise (failwith "Null node rms4")
         | Node {mkey = _  ; lchild ; rchild  ; replace = _} -> 
           begin match !succ_edge with 
           | Null_edge -> raise (failwith "Null edge rm5")
           | Edge {parent = _ ; child  ; which = _} -> let (_ , _ , _ , _ , childnode) = Atomic.get child in 
-            begin match Atomic.get childnode with 
+            begin match childnode with 
             | Null -> raise (failwith "Null node rms6")
             | Node {mkey = (_ , mkey) ; lchild = _ ; rchild = _ ; replace = _} -> 
               (* (node1 := Atomic.make (Node {mkey = (true , mkey) ; lchild ; rchild ; replace = true})); *)
-              ignore(Atomic.compare_and_set (!node1) (Atomic.get !node1) (Node {mkey = (true , mkey) ; lchild ; rchild ; replace = true}))
+              ignore(node1 := (Node {mkey = (true , mkey) ; lchild ; rchild ; replace = true}))
             end;
           end 
         end ;
@@ -781,7 +773,7 @@ begin
           if succ_edge_parent == !node1 then Right else Left in 
           (*!!!!!!!!! I DIDN'T USE THE i SHOULD SEE !!!!!!!!!!*)
           let (_ , _i , _ , _ , _) = 
-            begin match Atomic.get succ_edge_parent with 
+            begin match succ_edge_parent with 
             | Null -> raise (failwith "Null node rms8")
             | Node {mkey = _ ; lchild ; rchild ; replace = _} -> 
               begin match which with 
@@ -807,7 +799,7 @@ begin
             end in 
           let (n , _ , _ , _ , right) = 
             let (_, _, _, _, childnode) = Atomic.get succ_edge_child in
-            begin match Atomic.get childnode with 
+            begin match childnode with 
             | Null -> raise (failwith "Null node rms10")
             | Node {mkey = _ ; lchild = _ ; rchild ; replace = _} -> Atomic.get rchild
             end in
@@ -817,7 +809,7 @@ begin
             if n then (true , false , dflag , false , suc_ed_child) else (false , false , dflag , false , right) in 
 
           let before = 
-            begin match Atomic.get succ_edge_parent with 
+            begin match succ_edge_parent with 
             | Null -> raise (failwith "Null node rms11")
             | Node {mkey = _ ; lchild ; rchild ; replace = _} ->
               begin match which with 
@@ -832,7 +824,7 @@ begin
           if !out_flag then 
           begin 
             let (_ , _ , d , _ , _) = 
-              begin match Atomic.get succ_edge_parent with 
+              begin match succ_edge_parent with 
               | Null -> raise (failwith "Null node rms11")
               | Node {mkey = _ ; lchild ; rchild ; replace = _} ->
                 begin match which with 
@@ -855,18 +847,18 @@ begin
             let last_edge_child = 
               begin match last_edge with 
               | Null_edge -> raise (failwith "Null edge rms12")
-              | Edge {parent = _ ; child  ; which = _} -> let (_ , _ , _ , _ , childnode)  = Atomic.get child in Atomic.get childnode
+              | Edge {parent = _ ; child  ; which = _} -> let (_ , _ , _ , _ , childnode)  = Atomic.get child in childnode
               end in 
             (*ANOTHER CHANGE HERE, CHANGED = to == without any basis*)
-            if not (!result) || (last_edge_child == Atomic.get suc_ed_child) 
+            if not (!result) || (last_edge_child == suc_ed_child) 
               then (out_flag := false)
             else (succ_edge := seekrec.last_edge ;)
           end
           else ()
         done ;
-        begin match Atomic.get !node1 with 
+        begin match !node1 with 
           | Null -> raise(failwith "Null node rms13")
-          | Node {mkey ; lchild ; rchild ; replace = _} -> ignore(Atomic.compare_and_set (!node1) (Atomic.get !node1) (Node {mkey ; lchild ; rchild ; replace = true}))
+          | Node {mkey ; lchild ; rchild ; replace = _} -> ignore(node1 := (Node {mkey ; lchild ; rchild ; replace = true}))
         end ;
         update_mode tree ;
       end;
@@ -890,14 +882,14 @@ and cleanup (tree : 'elt t) (_printfn : 'elt -> unit) =
     if (Domain.DLS.get tree.my_state).wtype = Complex then (
       (*replace the node with a new copy in which all fields are unmarked*)
       let (_, nkey) = (
-        match Atomic.get node with
+        match node with
         | Null -> raise (failwith "Null node in cleanup")
         | Node {mkey;_} -> mkey 
       ) in
-      let newnode = Node {mkey = (false, nkey); lchild = Atomic.make (false, false, false, false, Atomic.make Null); rchild  = Atomic.make (false, false, false, false, Atomic.make Null); replace = false} in
+      let newnode = Node {mkey = (false, nkey); lchild = Atomic.make (false, false, false, false, Null); rchild  = Atomic.make (false, false, false, false, Null); replace = false} in
       (*initialize left and right pointers*)
       let (_, _, _, _, left) = (
-        match Atomic.get node with 
+        match node with 
         | Null -> raise (failwith "Null node in cleanup 2")
         | Node {lchild;_} -> Atomic.get lchild
       ) in
@@ -907,18 +899,18 @@ and cleanup (tree : 'elt t) (_printfn : 'elt -> unit) =
         | Node r -> Node {r with lchild = Atomic.make (false, false, false, false, left)}
       ) in
       let (n, _, _, _, right) = (
-        match Atomic.get node with
+        match node with
         | Null -> raise (failwith "Null node in cleanup 3")
         | Node {rchild;_} -> Atomic.get rchild
       ) in
       let rnode = (
-        if n then (true, false, false, false, Atomic.make Null)
+        if n then (true, false, false, false, Null)
         else (false, false, false, false, right)
       ) in
       let newnode = (
         match newnode with
         | Null -> raise (failwith "Won't reach here")
-        | Node r -> (false, false, false, false, Atomic.make (Node {r with rchild = Atomic.make rnode}))
+        | Node r -> (false, false, false, false, (Node {r with rchild = Atomic.make rnode}))
       ) in
       (* (
         let (_, _, _, _, newnode) = newnode in
@@ -935,7 +927,7 @@ and cleanup (tree : 'elt t) (_printfn : 'elt -> unit) =
         | Edge {child;_} -> Atomic.get child (*original algo needed old value to be node, and node comes from this, so yeah*) 
       ) in
       let currnode = (
-        match Atomic.get parent with
+        match parent with
         | Null -> raise (failwith "Null parent, gah!")
         | Node {lchild;rchild;_} -> (
           match pWhich with
@@ -949,7 +941,7 @@ and cleanup (tree : 'elt t) (_printfn : 'elt -> unit) =
       (*remove the node*)
       (*determine to which grandchild will the edge at the parent be switched*)
       let (n, _, _, _, _) = (
-        match Atomic.get node with 
+        match node with 
         | Null -> raise (failwith "Null hi Null hy")
         | Node {lchild;_} -> Atomic.get lchild
       ) in
@@ -961,7 +953,7 @@ and cleanup (tree : 'elt t) (_printfn : 'elt -> unit) =
         | Edge {child;_} -> Atomic.get child (*original algo needed old value to be node, and node comes from this, so yeah*) 
       ) in
       let (n, _, _, _, address) = (
-         match Atomic.get node with 
+         match node with 
         | Null -> raise (failwith "Null hi Null hy")
         | Node {lchild; rchild;_} -> (
           match nWhich with
@@ -988,7 +980,7 @@ and cleanup (tree : 'elt t) (_printfn : 'elt -> unit) =
         ) 
       ) in
       let currnode = (
-        match Atomic.get parent with
+        match parent with
         | Null -> raise (failwith "Null parent, gah!")
         | Node {lchild;rchild;_} -> (
           match pWhich with
@@ -1036,18 +1028,18 @@ and help_successor_node (tree : 'elt t) (help_edge : 'elt edge) (_printfn : 'elt
     end in 
   let left = 
     let (_, _, _, _, node) = Atomic.get node in
-    begin match Atomic.get node with 
+    begin match node with 
       | Null -> raise (failwith "Helper edge child node is Null, function -> help successor")
       | Node {lchild ; _} -> lchild 
     end in 
   (Domain.DLS.get tree.my_state).target_edge <- Edge {
-    parent = Atomic.make (false , false , false , false , (Atomic.make Null));
+    parent = Atomic.make (false, false, false, false, Null);
     child = left ;
     which = Right ; (* It doesn't matter I guess ?*)
   } ; 
   (Domain.DLS.get tree.my_state).succ_record.last_edge <- help_edge ;
   (Domain.DLS.get tree.my_state).succ_record.plast_edge <- Edge {
-    parent = Atomic.make (false , false , false , false , (Atomic.make Null));
+    parent = Atomic.make (false, false, false, false, Null);
     child = parent ;
     which = Right ; (* Again it doesn't matter? *)
   } ;
@@ -1082,7 +1074,7 @@ let _remove (tree : 'elt t) (key : 'elt) (_printfn : 'elt -> unit)=
                 | Edge {parent = _ ; child ; which = _} -> child 
                 end in
       let (_, _, _, _, tnode) = Atomic.get tnode_tuple in
-      let nkey = begin match Atomic.get tnode with
+      let nkey = begin match tnode with
                     | Null -> raise (failwith "Null Node 1")
                     | Node {mkey = (_ , skey) ; lchild = _ ; rchild = _ ; replace = _} -> skey
                     end in
@@ -1129,14 +1121,14 @@ let _remove (tree : 'elt t) (key : 'elt) (_printfn : 'elt -> unit)=
           if ((Domain.DLS.get tree.my_state).mode = Cleanup) then (
             (*either remove the target node (simple delete) or replace it with a node with all fields unmarked (complex delete)*)
             let result = cleanup tree _printfn in
-             if (result) then (out_flag := false; retval := true ;)
+            if (result) then (out_flag := false; retval := true ;)
             else (
               let key = (
                 match target_edge with
                 | Null_edge -> raise (failwith "target edge is null Idk")
                 | Edge {child;_} -> (
                   let  (_, _, _, _, cnode) = Atomic.get child in
-                  match (Atomic.get cnode) with
+                  match cnode with
                   | Null -> raise (failwith "key is null Idk")
                   | Node {mkey = (_, key);_} -> key 
                 )
