@@ -106,7 +106,7 @@ match Atomic.get tuple with
   print_node (Atomic.get node) _printfn;
 )
 
-let rec inorder_helper root = 
+let rec inorder_helper root depth = 
   match root with 
     | Null -> []
     | Node {mkey = (_, key); lchild; rchild; _} -> 
@@ -116,15 +116,23 @@ let rec inorder_helper root =
         (
           match key with
           | None -> (*print_endline "inf"; print_string "left: "; print_tuple lchild _printfn; print_string "right: "; print_tuple rchild _printfn;*) []
-          | Some x -> (*_printfn x; print_endline ""; print_string "left: "; print_tuple lchild _printfn; print_string "right: "; print_tuple rchild _printfn;*) [x]
+          | Some x -> (*_printfn x; print_endline ""; print_string "left: "; print_tuple lchild _printfn; print_string "right: "; print_tuple rchild _printfn;*) [(x, depth)]
         ) in
-        let llist = if l then [] else inorder_helper left in
-        let rlist = if r then [] else inorder_helper right in
+        let llist = if l then [] else inorder_helper left (depth + 1) in
+        let rlist = if r then [] else inorder_helper right (depth + 1) in
         llist @ mlist @ rlist
 
-let to_list tree _printfn = 
-  match tree with {root;_} -> inorder_helper root
+let to_plist tree _printfn = 
+  match tree with {root;_} -> inorder_helper root (-3) (*to account for R, S, T*)
 
+let to_list tree _printfn = 
+  let list = to_plist tree _printfn in
+  let rec helper lst = 
+    match lst with
+    | [] -> []
+    | (a, _)::xs -> a::(helper xs)
+  in
+  helper list
 let print_inorder root _printfn = 
    let list = to_list root _printfn in
    let rec printer list _printfn = 
@@ -1155,5 +1163,7 @@ let add tree elt = ignore(add tree elt (fun _ -> ()))
 let remove tree elt = remove tree elt (fun _ -> ())
 
 let find tree elt = search tree elt (fun _ -> ())
+
+let to_plist tree = to_plist tree (fun _ -> ())
 
 let to_list tree = to_list tree (fun _ -> ())
