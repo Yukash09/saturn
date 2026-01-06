@@ -216,6 +216,33 @@ let insert_remove_search_balanced () =
     )
   )
 
+let remove_remove () = 
+  Atomic.trace (fun () -> 
+    let bst = Bst.create ~compare:Int.compare () in 
+    let keys = [|50 ; 30 ; 70 ; 40 ; 20 ; 60 ; 80 ; 10|] in 
+    let siz = 8 in 
+    for i = 0 to siz - 1 do 
+      Bst.add bst keys.(i)
+    done ;
+    let r1 = ref 0 in 
+    let r2 = ref 0 in 
+
+    Atomic.spawn(fun () -> 
+      for i = 0 to 4 do 
+        if Bst.remove bst keys.(i) then r1 := !r1 + 1
+      done) ;
+    Atomic.spawn(fun () ->
+      for i = 3 to 7 do
+        if Bst.remove bst keys.(i) then r2 := !r2 + 1
+      done) ;
+
+    Atomic.final(fun () ->
+      let items = Bst.to_list bst in 
+      Atomic.check (fun () -> List.length items = 0) ;
+      Atomic.check (fun () -> !r1 + !r2 = 8) ;
+    )
+  )
+
 let () = 
   let open Alcotest in 
   run "DSCheck_Bst"
@@ -229,6 +256,7 @@ let () =
           test_case "1-insert-1-search-balanced" `Slow insert_search_balanced ;
           test_case "1-insert-1-remove" `Slow insert_remove ;
           test_case "1-insert-1-remove-1-search-balanced" `Slow insert_remove_search_balanced ;
+          test_case "1-remove-1-remove" `Slow remove_remove ; 
         ]
       ) ;
     ]
