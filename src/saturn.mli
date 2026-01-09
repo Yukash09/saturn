@@ -74,6 +74,7 @@ module Htbl_unsafe = Htbl_unsafe
 module Skiplist = Skiplist
 module Bag = Bag
 module Bst = Bst
+module Bst_ez = Bst_ez
 
 (** {2 Queues} *)
 

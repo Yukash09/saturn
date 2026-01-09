@@ -42,3 +42,4 @@ module Htbl = Htbl
 module Htbl_unsafe = Htbl_unsafe
 module Bag = Bag
 module Bst = Bst
+module Bst_ez = Bst_ez
