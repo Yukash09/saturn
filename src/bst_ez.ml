@@ -151,7 +151,56 @@ begin
   in cmpval 
 end
 
-let cleanup (key : 'elt) (tree : 'elt t) (srecord : 'elt seek_record )= false
+let cleanup (key : 'elt) (tree : 'elt t) (srecord : 'elt seek_record) = 
+begin
+  (*retrieve all the addresses stored in the seek record for easy access*)
+  let anc = srecord.ancestor in
+  let suc = srecord.successor in
+  let par = srecord.parent in
+  let leaf = srecord.leaf in
+  (*obtain the address on which the atomic instructions will be executed*)
+  (*first obtain the address of the field of the ancestor node that will be modified*)
+  let succ_addr = 
+    begin
+      match !anc.key with
+      | None -> !anc.lchild (* None represents inf, greater than everything*)
+      | Some v -> 
+        let cmpval = tree.compare key v in
+        if cmpval < 0 then !anc.lchild else !anc.rchild
+    end in
+  (*obtain the addresses of the child fields of the parent node*)
+  let child_addr, sib_addr = 
+    begin
+      match !par.key with
+      | None -> !par.lchild, !par.rchild
+      | Some v ->
+        let cmpval = tree.compare key v in
+        if cmpval < 0 then !par.lchild, !par.rchild else !par.rchild, !par.lchild
+    end in
+  
+  let {flag;_} = Atomic.get child_addr in
+
+  if not flag then 
+    (*the leaf node is not flagged for deletion; thus the sibling node must be marked for deletion*)
+    (*switch the sibling address*)
+    Atomic.set sib_addr (Atomic.get child_addr);
+  (*tag the sibling edge; no modify operation can occur at this edge now*)
+  (*this is the BTS instr*)
+  let new_val = match Atomic.get sib_addr with {flag; tag; address} -> {flag; tag = true; address} in
+  Atomic.set sib_addr new_val;
+
+  (*read the flag and address fields*)
+  let {flag; address; _} = Atomic.get sib_addr in
+  (*the flag field will be copied to the new edge that will be created*)
+  (*make sibling node a direct child of the ancestor node*)
+  let old_val = Atomic.get succ_addr in
+  if ((old_val.address <> Some suc) || (old_val.tag) || (old_val.flag)) then false
+  else 
+    begin
+      let new_val = {flag = flag; tag = false; address = address} in
+      Atomic.compare_and_set succ_addr old_val new_val
+    end
+end
 
 let insert (tree : 'elt t) (key : 'elt) = 
 begin
