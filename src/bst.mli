@@ -25,3 +25,7 @@ val remove : 'elt t -> 'elt -> bool
 
 val to_list : 'elt t -> 'elt list 
 (** [to_list tree] returns the list of keys present in the Binary Search Tree [tree]. The returned ['elt list] contains the keys in the inorder fashion or sorted fashion according to the Binary Search tree's [tree] compare function. *)
+
+(* val to_plist : 'elt t -> ('elt * int) list
+
+val adddbg : 'elt t -> 'elt -> ('elt -> unit) -> unit  *)

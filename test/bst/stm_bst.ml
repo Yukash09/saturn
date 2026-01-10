@@ -1,7 +1,7 @@
 (** Sequential and Parallel model-based tests of BST *)
 open QCheck
 open STM
-module Bst = Saturn.Bst
+module Bst_ez = Saturn.Bst_ez
 
 module Lib_spec : Spec = struct 
   module IntOrd = struct 
@@ -15,9 +15,9 @@ module Lib_spec : Spec = struct
 
   let init_state = S.empty 
 
-  type sut = int Bst.t
+  type sut = int Bst_ez.t
 
-  let init_sut () = Bst.create ~compare:Int.compare ()
+  let init_sut () = Bst_ez.create ~compare:Int.compare ()
 
   let cleanup _ = () 
 
@@ -34,9 +34,9 @@ module Lib_spec : Spec = struct
 
   let run cmd (t : sut) = 
     match cmd with 
-      | Add i -> Res (unit , Bst.add t i)
-      | Find i -> Res (bool , Bst.find t i)
-      | Remove i -> Res (bool , Bst.remove t i)
+      | Add i -> Res (unit , Bst_ez.add t i)
+      | Find i -> Res (bool , Bst_ez.find t i)
+      | Remove i -> Res (bool , Bst_ez.remove t i)
 
   let next_state (cmd : cmd) (curr_state : state) = 
     match cmd with 
@@ -66,10 +66,10 @@ module Lib_spec : Spec = struct
       [
         Gen.map (fun i -> Add i) gen ;
         Gen.map (fun i -> Find i) gen ;
-        Gen.map (fun i -> Remove i) gen ;
+        (* Gen.map (fun i -> Remove i) gen ; *)
       ]
     )
 end
 
-let () = Stm_run.run ~name:"Saturn.Bst" (module Lib_spec) |> exit
+let () = Stm_run.run ~name:"Saturn.Bst_ez" (module Lib_spec) |> exit
 

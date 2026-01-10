@@ -1,4 +1,3 @@
-module Atomic = Multicore_magic.Transparent_atomic
 type 'elt node = 
 Null
 | Node of {
@@ -162,12 +161,9 @@ let create ~compare () =
     ) in 
   {compare ; root = (Node {mkey = (false, None); lchild = Atomic.make (true, false, false, false, Null); rchild = Atomic.make (false, false, false, false, s_node); replace = false}) ; my_state = state}
 
-let seek (key : 'elt) (srecord : 'elt seek_record ref) (tree : 'elt t) (printfn : 'elt -> unit)  = 
+let seek (key : 'elt) (srecord : 'elt seek_record ref) (tree : 'elt t)  = 
   begin
     (* ignore(print_endline "---------------- entered seek ----------------"); *)
-    (* Printf.printf "Entered seek and I'm seeking for %!" ;
-    printfn key ;
-    Printf.printf "\n%!" ; *)
     let cmp = tree.compare in 
     let _R = tree.root in (* Node R*)
     let _S = (*Node S *)
@@ -298,10 +294,10 @@ let seek (key : 'elt) (srecord : 'elt seek_record ref) (tree : 'elt t) (printfn 
   end
 
 (* let debug () *)
-let search (tree : 'elt t) (key : 'elt) (printfn : 'elt -> unit) =
+let search (tree : 'elt t) (key : 'elt) (_printfn : 'elt -> unit) =
   begin
     let my_srecord = ref {last_edge = Null_edge; plast_edge = Null_edge; inject_edge = Null_edge} 
-    in seek key my_srecord tree printfn;
+    in seek key my_srecord tree;
     let node =  match ((!my_srecord).last_edge) with
     | Null_edge -> Null
     | Edge{child;_} -> let (_, _, _, _, child) = Atomic.get child in child
@@ -430,12 +426,11 @@ let find_smallest (tree: 'elt t) (_printfn : 'elt -> unit) =
  end
 
 let rec add (tree: 'elt t) (key:'elt) (_printfn: 'elt -> unit) = 
-  (* Printf.printf "Entered add part and I'm gonna add " ; _printfn key ; Printf.printf "\n%!" ; *)
    let out_flag = ref true in 
   let retval = ref false in
   let target_record : 'elt seek_record ref = ref {last_edge = Null_edge ; plast_edge = Null_edge ; inject_edge = Null_edge} in 
   while !out_flag do
-    seek key target_record tree _printfn; 
+    seek key target_record tree; 
     let target_edge = !target_record.last_edge in 
     let tnode_tuple = begin match target_edge with 
                 | Null_edge -> raise (failwith "Null Edge 1")
@@ -1086,7 +1081,7 @@ let remove (tree : 'elt t) (key : 'elt) (_printfn : 'elt -> unit)=
     let retval = ref false in
     let target_record : 'elt seek_record ref = ref {last_edge = Null_edge ; plast_edge = Null_edge ; inject_edge = Null_edge} in 
     while !out_flag do
-      seek key target_record tree _printfn;
+      seek key target_record tree;
       let target_edge = !target_record.last_edge in
       let ptarget_edge = !target_record.plast_edge in
       let tnode_tuple = begin match target_edge with 
@@ -1163,7 +1158,6 @@ let remove (tree : 'elt t) (key : 'elt) (_printfn : 'elt -> unit)=
     !retval
   end
 
-let adddbg tree elt printfn = ignore(add tree elt printfn)
 let add tree elt = ignore(add tree elt (fun _ -> ()))
 
 let remove tree elt = remove tree elt (fun _ -> ())

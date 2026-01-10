@@ -1,4 +1,5 @@
 module Atomic = Multicore_magic.Transparent_atomic
+
 type 'elt child = {
   flag : bool ;
   tag : bool ;
@@ -6,14 +7,10 @@ type 'elt child = {
 }
 
 and 'elt node = {
-  mutable key : 'elt option ;
+  mutable key : 'elt option ; (* Option is being used to denote finite value keys and infinite keys for implementation purposes *)
   lchild : 'elt child Atomic.t ;
   rchild : 'elt child Atomic.t ;
 }
-
-type edge_type = 
-| Left 
-| Right 
 
 type 'elt seek_record = {
   mutable ancestor : 'elt node ref ;
@@ -23,24 +20,26 @@ type 'elt seek_record = {
 }
 
 type 'elt t = {
-  compare : 'elt -> 'elt -> int ;
-  root : 'elt node ref ;
-  nodeS : 'elt node ref ; 
+  compare : 'elt -> 'elt -> int ; (* Comparator *)
+  root : 'elt node ref ; (* points to nodeR *)
+  nodeS : 'elt node ref ; (* points to nodeS *)
 }
 
 let create ~compare () = 
 begin 
+  (* Create sentinel nodes - nodeR , nodeS , leaf1 , leaf2 for convenience *)
+
   let leaf1 = {
     key = None ;
     lchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ;
+      address = None ; (* None represents infinity *)
     } ;
     rchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ;
+      address = None ; (* None represents infinity *)
     } ;
   } in 
 
@@ -49,12 +48,12 @@ begin
     lchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ;
+      address = None ; (* None represents infinity *)
     } ;
     rchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ;
+      address = None ; (* None represents infinity *)
     } ;
   } in 
 
@@ -82,16 +81,9 @@ begin
     rchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ;
+      address = None ; (* None represents infinity *)
     } ;
   } in 
-
-  (* let srecord = Domain.DLS.new_key (fun () -> {
-    ancestor = ref nodeR ;
-    successor = ref nodeS ;
-    parent = ref nodeS ;
-    leaf = ref nodeR ;
-  }) in  *)
   let tree = {
     compare = compare ;
     root = ref nodeR ;
@@ -154,12 +146,12 @@ begin
   let sR = seek key tree in  
   let cmpval = 
     match !(sR.leaf).key with 
-    | None -> false
+    | None -> false (* None represents infinity, doesn't match with any key *)
     | Some v -> (tree.compare v key = 0)
   in cmpval 
 end
 
-let cleanup (key : 'elt) (tree : 'elt t) = () 
+let cleanup (key : 'elt) (tree : 'elt t) (srecord : 'elt seek_record )= false
 
 let insert (tree : 'elt t) (key : 'elt) = 
 begin
@@ -169,16 +161,16 @@ begin
     let leaf = (sR).leaf in 
     let cmpval = 
       begin match !leaf.key with 
-        | None -> false 
+        | None -> false (* None represents infinity, doesn't match with any key *)
         | Some v -> tree.compare key v = 0 
       end in 
     
     if cmpval then () (* Duplicate key *)
-    else
+    else (* Key not present *)
       begin
         let child_addr = 
           begin match !par.key with 
-            | None -> !par.lchild 
+            | None -> !par.lchild (* None represents infinity > all finite keys *)
             | Some v -> 
               let cmpval = tree.compare key v in 
               if cmpval < 0 then !par.lchild else !par.rchild 
@@ -186,11 +178,8 @@ begin
 
         (* Preliminary value for CAS *)
         let old_val = Atomic.get child_addr in 
-        
-        (* if old_val.address <> Some leaf then loop () 
-        else *)
           begin
-
+            (* Create internal node and new leaf node *)
             let new_leaf = ref ({
               key = Some key ;
               lchild = Atomic.make {flag = false; tag = false; address = None} ; 
@@ -234,16 +223,19 @@ begin
               tag = false ; 
               address = Some new_internal ;
             } in 
-            if old_val.address <> Some leaf then loop () 
-            else
+
+            if (old_val.address <> Some leaf) || old_val.flag || old_val.tag 
+              then loop () (* Structurally need to check since CAS does physical equality. CAS(child_addr , {0 ; 0 ; leaf} , new_val) *)
+            else 
             let result = Atomic.compare_and_set child_addr old_val new_val in 
 
-            if result then () 
-            else 
+            if result then () (* Insert success *)
+            else (* Insert failed, help the conflicting delete operation *)
               begin
                 let {flag ; tag ; address} = Atomic.get child_addr in 
                 if (address = Some leaf) && (flag || tag) then 
-                  cleanup key tree ; 
+                  (* Address has not changed but sibling/leaf has been flagged for deletion *)
+                  ignore(cleanup key tree sR) ; 
                 loop ()
               end
           end
@@ -251,7 +243,70 @@ begin
   loop ()
 end
 
-let remove tree key = raise (failwith "Not implemented")
+let delete (tree : 'elt t) (key : 'elt) = 
+begin 
+  let mode = ref 0 in (* 0 = Injection Mode , 1 = Cleanup mode *)
+  let leaf = tree.nodeS in
+  let rec loop () = 
+    let sR = seek key tree in 
+    let par = sR.parent in 
+    let child_addr = 
+      begin match !par.key with 
+        | None -> !par.lchild (* None represents infinity > all finite keys *)
+        | Some v -> 
+          let cmpval = tree.compare key v in 
+          if cmpval < 0 then !par.lchild else !par.rchild 
+      end in 
+    
+    if !mode = 0 then
+      (* Injection mode: Check if the key is present in the tree  *)
+      let _ = leaf := !(sR.leaf) in
+      begin match !leaf.key with 
+        | None -> false (* None represents infinity , Key not present *)
+        | Some v -> 
+          if tree.compare key v != 0 then false (* Key not present *)
+          else 
+            begin
+              let new_val = {
+                flag = true ;
+                tag = false ;
+                address = Some leaf
+              } in 
+              let old_val = Atomic.get child_addr in 
+              if (old_val.address <> Some leaf) || (old_val.tag) || (old_val.flag) then loop () 
+              else 
+                begin 
+                  let result = Atomic.compare_and_set child_addr old_val new_val in 
+                  if result then 
+                    begin 
+                      (* Advance to the cleanup mode and try to remove the leaf node from the tree *)
+                      mode := 1 ; 
+                      let clean_done = cleanup key tree sR in 
+                      if clean_done then true else loop () 
+                    end
+                  else 
+                    begin
+                      let {flag ; tag ; address} = Atomic.get child_addr in 
+                      if (address = Some leaf) && (flag || tag) 
+                        then cleanup key tree sR (* Address has not changed but sibling/leaf has been flagged for deletion -> Cleanup *)
+                      else loop ()
+                    end
+                end 
+            end
+      end 
+    else 
+      (* Cleanup mode - Check if the leaf node that was flgged in the injection mode is still present in the tree *) 
+      begin 
+        if sR.leaf <> leaf then true (* Leaf node is no longer present *)
+        else 
+          (* Leaf node is still present in the tree ; Remove it *)
+          let clean_done = cleanup key tree sR in 
+          if clean_done then true else loop () 
+      end
+  in 
+  loop ()      
+end
+let remove tree key = delete tree key 
 let add tree key = insert tree key 
 let find tree key = search tree key 
 let to_list tree = 
