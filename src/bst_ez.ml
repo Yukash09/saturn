@@ -34,12 +34,12 @@ begin
     lchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ; (* None represents infinity *)
+      address = None ; (* None represents Null node *)
     } ;
     rchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ; (* None represents infinity *)
+      address = None ; (* None represents Null node *)
     } ;
   } in 
 
@@ -48,12 +48,25 @@ begin
     lchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ; (* None represents infinity *)
+      address = None ; (* None represents Null node *)
     } ;
     rchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ; (* None represents infinity *)
+      address = None ; (* None represents Null node *)
+    } ;
+  } in 
+  let leaf3 = {
+    key = None ; 
+    lchild = Atomic.make {
+      flag = false ;
+      tag = false ;
+      address = None ; (* None represents Null node *)
+    } ;
+    rchild = Atomic.make {
+      flag = false ;
+      tag = false ;
+      address = None ; (* None represents Null node *)
     } ;
   } in 
 
@@ -81,7 +94,7 @@ begin
     rchild = Atomic.make {
       flag = false ;
       tag = false ;
-      address = None ; (* None represents infinity *)
+      address = Some (leaf3) ; (* None represents Null node *)
     } ;
   } in 
   let tree = {
@@ -288,9 +301,11 @@ begin
             } in 
 
             if (old_val.address <> Some leaf) || old_val.flag || old_val.tag then
+              begin 
               if (old_val.address = Some leaf) && (old_val.flag || old_val.tag) 
-                then ignore(cleanup key tree sR)(* Structurally need to check since CAS does physical equality. CAS(child_addr , {0 ; 0 ; leaf} , new_val) *)
-              else loop () 
+                then ignore(cleanup key tree sR) ;(* Structurally need to check since CAS does physical equality. CAS(child_addr , {0 ; 0 ; leaf} , new_val) *)
+              loop ()
+              end
             else 
             let result = Atomic.compare_and_set child_addr old_val new_val in 
 
@@ -339,9 +354,11 @@ begin
               } in 
               let old_val = Atomic.get child_addr in 
               if (old_val.address <> Some !leaf) || (old_val.tag) || (old_val.flag) then 
+                begin
                 if (old_val.address = Some !leaf) && (old_val.tag || old_val.flag) 
                   then cleanup key tree sR
                   else loop () 
+                end
               else 
                 begin 
                   let result = Atomic.compare_and_set child_addr old_val new_val in 
@@ -377,6 +394,86 @@ end
 let remove tree key = delete tree key 
 let add tree key = insert tree key 
 let find tree key = search tree key 
+
+let print_child child (printfn : 'elt -> unit) = 
+  match child with
+  {flag; tag; address} -> (
+    if flag then print_string "true " else print_string "false ";
+    if tag then print_string "true " else print_string "false ";
+    match address with
+    | None -> print_endline "null address"
+    | Some v -> let {key:_} = v in match key with | None -> print_endline "inf" | Some x -> printfn x; print_endline "";  
+  )
+
+let print_node node (printfn : 'elt -> unit) =
+  let {key; lchild; rchild} = node in
+  (
+    match key with
+  | None -> print_endline "inf"
+  | Some x -> printfn x; print_endline ""
+  );
+  print_string "lchild: "; print_child (Atomic.get lchild) printfn;
+  print_string "rchild: "; print_child (Atomic.get rchild) printfn;
+  ()
+
+let print_srec srec (printfn : 'etl -> unit) = 
+  match srec with {ancestor; successor; parent; leaf} -> (
+    print_string "ancestor "; print_node ancestor printfn;
+    print_string "successor "; print_node successor printfn;
+    print_string "parent "; print_node parent printfn;
+    print_string "leaf "; print_node leaf printfn;
+  )
+
+let to_plist tree = 
+  let rec inorder_helper node acc depth = 
+    let left = Atomic.get node.lchild in 
+    let right = Atomic.get node.rchild in 
+
+    begin match left.address , right.address with 
+      | None , None -> 
+        begin match node.key with 
+        | None -> acc 
+        | Some v -> (v, depth) :: acc 
+        end 
+      | Some lnode , None -> inorder_helper lnode acc (depth + 1)
+      | None , Some rnode -> inorder_helper rnode acc (depth + 1)
+      | Some lnode , Some rnode -> 
+        let leftacc = inorder_helper lnode acc (depth + 1) in 
+        inorder_helper rnode leftacc (depth + 1)
+    end in 
+    inorder_helper (tree.root) [] 0
+
+let print_tree (tree : 'elt t) (printfn : 'elt -> unit) = 
+  let rec traverse node depth = 
+    (* Print current node information *)
+    print_string "Depth "; print_int depth; print_string ": ";
+    print_node node printfn;
+    print_endline "---";
+    
+    (* Get children *)
+    let left = Atomic.get node.lchild in 
+    let right = Atomic.get node.rchild in 
+    
+    (* Traverse left child if it exists *)
+    (match left.address with 
+     | None -> ()
+     | Some lnode -> traverse lnode (depth + 1)
+    );
+    
+    (* Traverse right child if it exists *)
+    (match right.address with 
+     | None -> ()
+     | Some rnode -> traverse rnode (depth + 1)
+    )
+  in 
+  print_endline "=== Tree Structure ===";
+  traverse tree.root 0;
+  print_endline "Print complete"
+
+(* 
+let print_tree (tree : 'elt t) (printfn : 'elt -> unit) = 
+  let list = to_plist tree in
+  List.iter (fun (a, b) -> print_string "("; printfn a; print_string ", "; print_int b; print_endline ")") list ; print_endline "Print complete"  *)
 let to_list tree = 
   let rec inorder_helper node acc = 
     let left = Atomic.get node.lchild in 
