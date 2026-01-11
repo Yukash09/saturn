@@ -66,7 +66,7 @@ module Lib_spec : Spec = struct
       [
         Gen.map (fun i -> Add i) gen ;
         Gen.map (fun i -> Find i) gen ;
-        (* Gen.map (fun i -> Remove i) gen ; *)
+        Gen.map (fun i -> Remove i) gen ;
       ]
     )
 end
