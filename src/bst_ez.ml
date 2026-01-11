@@ -207,7 +207,8 @@ begin
   (*the flag field will be copied to the new edge that will be created*)
   (*make sibling node a direct child of the ancestor node*)
   let old_val = Atomic.get succ_addr in
-  if ((old_val.address <> Some suc) || (old_val.tag) || (old_val.flag)) then let _ = print_endline "This check failed" in false
+  if ((old_val.address <> Some suc) || (old_val.tag) || (old_val.flag)) 
+  then false
   else 
     begin
       let new_val = {flag = flag; tag = false; address = address} in
@@ -286,8 +287,10 @@ begin
               address = Some new_internal ;
             } in 
 
-            if (old_val.address <> Some leaf) || old_val.flag || old_val.tag 
-              then loop () (* Structurally need to check since CAS does physical equality. CAS(child_addr , {0 ; 0 ; leaf} , new_val) *)
+            if (old_val.address <> Some leaf) || old_val.flag || old_val.tag then
+              if (old_val.address = Some leaf) && (old_val.flag || old_val.tag) 
+                then ignore(cleanup key tree sR)(* Structurally need to check since CAS does physical equality. CAS(child_addr , {0 ; 0 ; leaf} , new_val) *)
+              else loop () 
             else 
             let result = Atomic.compare_and_set child_addr old_val new_val in 
 
@@ -335,7 +338,10 @@ begin
                 address = Some !leaf
               } in 
               let old_val = Atomic.get child_addr in 
-              if (old_val.address <> Some !leaf) || (old_val.tag) || (old_val.flag) then loop () 
+              if (old_val.address <> Some !leaf) || (old_val.tag) || (old_val.flag) then 
+                if (old_val.address = Some !leaf) && (old_val.tag || old_val.flag) 
+                  then cleanup key tree sR
+                  else loop () 
               else 
                 begin 
                   let result = Atomic.compare_and_set child_addr old_val new_val in 

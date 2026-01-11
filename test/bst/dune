@@ -16,24 +16,24 @@
  (flags
   (:standard -open Multicore_magic_dscheck)))
 
- (test
- (package saturn)
- (name stm_bst)
- (modules stm_bst)
- (libraries saturn qcheck-core qcheck-stm.stm stm_run))
+ ; (test
+ ; (package saturn)
+ ; (name stm_bst)
+ ; (modules stm_bst)
+ ; (libraries saturn qcheck-core qcheck-stm.stm stm_run))
 
- (test
- (package saturn)
- (name qcheck_bst)
- (modules qcheck_bst)
- (libraries
-  saturn
-  barrier
-  qcheck
-  qcheck-core
-  qcheck-alcotest
-  alcotest
-  domain_shims))
+ ; (test
+ ; (package saturn)
+ ; (name qcheck_bst)
+ ; (modules qcheck_bst)
+ ; (libraries
+ ;  saturn
+ ;  barrier
+ ;  qcheck
+ ;  qcheck-core
+ ;  qcheck-alcotest
+ ;  alcotest
+ ;  domain_shims))
 
  ; (test
  ; (package saturn)

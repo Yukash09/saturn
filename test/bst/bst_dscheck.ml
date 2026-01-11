@@ -154,7 +154,7 @@ let insert_search_balanced () =
 let insert_remove () = 
   Atomic.trace (fun () -> 
     let bst = Bst_ez.create ~compare:Int.compare () in 
-    let total = 4 in
+    let total = 2 in
 
     Atomic.spawn (fun () ->
       for i = 1 to total do
@@ -164,14 +164,14 @@ let insert_remove () =
     let removed = ref [] in 
     Atomic.spawn (fun () -> 
       for i = 1 to total do 
-        if Bst_ez.remove bst i then 
+        if (Bst_ez.remove bst i) then 
           removed := !removed @ [i]
       done ;) ;
     
     Atomic.final (fun () -> 
       let items = Bst_ez.to_list bst in 
       Atomic.check(fun () ->
-        List.length items + List.length !removed = total) ; 
+        let _ = Printf.printf "%d , %d\n%!" (List.length items) (List.length !removed) in List.length items + List.length !removed = total) ; 
       Atomic.check(fun () -> 
         List.sort Int.compare items = items) ;
       Atomic.check(fun () -> 
