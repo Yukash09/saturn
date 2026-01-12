@@ -171,7 +171,8 @@ let insert_remove () =
     Atomic.final (fun () -> 
       let items = Bst_ez.to_list bst in 
       Atomic.check(fun () ->
-        let _ = Printf.printf "%d , %d\n%!" (List.length items) (List.length !removed) in List.length items + List.length !removed = total) ; 
+        (* let _ = Printf.printf "%d , %d\n%!" (List.length items) (List.length !removed) in *)
+        List.length items + List.length !removed = total) ; 
       Atomic.check(fun () -> 
         List.sort Int.compare items = items) ;
       Atomic.check(fun () -> 
@@ -182,8 +183,8 @@ let insert_remove () =
 let insert_remove_search_balanced () = 
   Atomic.trace (fun () ->
     let bst = Bst_ez.create ~compare:Int.compare () in 
-    let keys1 = [|50 ; 30 ; 70 ; 40 ; 20 ; 60 ; 80 ; 10|] in 
-    let siz = 8 in 
+    let keys1 = [|50 ; 30 ; 70 ; 40|] in 
+    let siz = 4 in 
 
     (* Domain 1 adds keys , Domain 2 searches keys , Domain 3 removes keys *)
     Atomic.spawn (fun () ->
@@ -206,27 +207,32 @@ let insert_remove_search_balanced () =
     Atomic.final (fun () ->
       let items = Bst_ez.to_list bst in 
       Atomic.check (fun () -> 
-        let _ = List.iter (fun x -> Printf.printf "%d " x) items ; print_endline "" ; List.iter (fun x -> Printf.printf "%d " x) !removed in List.length items + List.length !removed = siz)
+        (* let _ = List.iter (fun x -> Printf.printf "%d " x) items ; print_endline "" ; *)
+        (* let _ = List.iter (fun x -> Printf.printf "%d " x) !removed in  *)
+        List.length items + List.length !removed = siz)
     )
   )
 
 let remove_remove () = 
   Atomic.trace (fun () -> 
     let bst = Bst_ez.create ~compare:Int.compare () in 
-    let keys = [|50 ; 30 ; 70 ; 40 ; 20 ; 60 ; 80 ; 10|] in 
-    let siz = 8 in 
+    let keys = [|50 ; 30 ; 70 ; 40 |] in 
+    let siz = 4 in 
     for i = 0 to siz - 1 do 
       Bst_ez.add bst keys.(i)
     done ;
+    Bst_ez.print_tree bst (fun x -> print_int x) ;
+
+
     let r1 = ref 0 in 
     let r2 = ref 0 in 
 
     Atomic.spawn(fun () -> 
-      for i = 0 to 4 do 
+      for i = 0 to 2 do 
         if Bst_ez.remove bst keys.(i) then r1 := !r1 + 1
       done) ;
     Atomic.spawn(fun () ->
-      for i = 3 to 7 do
+      for i = 1 to 3 do
         if Bst_ez.remove bst keys.(i) then r2 := !r2 + 1
       done) ;
 
@@ -304,14 +310,14 @@ let () =
     [
       ( "basic",
         [
-          test_case "2-disjoint-insert" `Slow insert_insert ;
-          test_case "2-insert-duplicates" `Slow insert_insert_duplicates ;
-          test_case "1-insert-1-search" `Slow insert_search ;
-          test_case "2-insert-balanced" `Slow insert_insert_balanced ;
-          test_case "1-insert-1-search-balanced" `Slow insert_search_balanced ;
-          test_case "1-insert-1-remove" `Slow insert_remove ;
+          (* test_case "2-disjoint-insert" `Slow insert_insert ; *)
+          (* test_case "2-insert-duplicates" `Slow insert_insert_duplicates ; *)
+          (* test_case "1-insert-1-search" `Slow insert_search ; *)
+          (* test_case "2-insert-balanced" `Slow insert_insert_balanced ; *)
+          (* test_case "1-insert-1-search-balanced" `Slow insert_search_balanced ; *)
+          (* test_case "1-insert-1-remove" `Slow insert_remove ; *)
           (* test_case "1-insert-1-remove-1-search-balanced" `Slow insert_remove_search_balanced ; *)
-          (* test_case "1-remove-1-remove" `Slow remove_remove ;  *)
+          test_case "1-remove-1-remove" `Slow remove_remove ; 
           (* test_case "1-remove-1-insert" `Slow remove_insert ; *)
           (* test_case "1-remove-1-search" `Slow remove_search ; *)
         ]

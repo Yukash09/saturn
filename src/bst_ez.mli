@@ -29,3 +29,5 @@ val to_list : 'elt t -> 'elt list
 (* val to_plist : 'elt t -> ('elt * int) list
 
 val adddbg : 'elt t -> 'elt -> ('elt -> unit) -> unit  *)
+
+val print_tree : 'elt t -> ('elt -> unit) -> unit 
