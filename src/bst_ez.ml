@@ -518,9 +518,12 @@ module Stamped_Atomic =  struct
   let get_stamp (version : 'elt t) =
     (Atomic.get version).stamp 
 
+  let get (version : 'elt t) = 
+    (Atomic.get version)
+
   let compare_and_set (curr_version : 'elt t) (old_val : 'elt) (new_val : 'elt) (old_stamp : int) (new_stamp : int) = 
     let old_version = Atomic.get curr_version in 
-    if (old_version.value == old_val) && (old_version.stamp == old_stamp) then
+    if (old_version.value = old_val) && (old_version.stamp = old_stamp) then
       let new_version = {
         value = new_val  ;
         stamp = new_stamp ;
@@ -530,7 +533,7 @@ module Stamped_Atomic =  struct
 
   let attempt_stamp (curr_version : 'elt t) (old_val : 'elt) (new_stamp : int) = 
     let old_version = Atomic.get curr_version in 
-    if (old_version.value == old_val) then 
+    if (old_version.value = old_val) then 
       let new_version = {
         value = old_val ; 
         stamp = new_stamp ;
@@ -547,16 +550,16 @@ type 'elt node = {
 }
 
 type 'elt seek_record = {
-  ancestor : 'elt node ; (* Using option to differentiate Null nodes and Non-null nodes *)
-  successor : 'elt node ;
-  parent : 'elt node ;
-  leaf : 'elt node ;
+  ancestor : 'elt node option ; (* Using option to differentiate Null nodes and Non-null nodes *)
+  successor : 'elt node option ;
+  parent : 'elt node option ;
+  leaf : 'elt node option ;
 }
 
 type 'elt t = {
   compare : ('elt -> 'elt -> int) ;
-  nodeR : 'elt node ;
-  nodeS : 'elt node ;
+  nodeR : 'elt node option ;
+  nodeS : 'elt node option ;
 }
 
 let to_plist tree =
@@ -578,7 +581,7 @@ let to_plist tree =
         inorder_helper rnode (depth + 1) leftacc
       end
     in
-  inorder_helper (tree.nodeR) 0 []
+  inorder_helper (Option.get (tree.nodeR)) 0 []
 
 let to_list tree = List.fold_left (fun acc (x, _) -> acc @ [x]) [] (to_plist tree)
 
@@ -608,20 +611,20 @@ begin
   } in 
 
   let tree = {
-    compare ; 
-    nodeR ;
-    nodeS ;
+    compare = compare ; 
+    nodeR = Some nodeR ;
+    nodeS = Some nodeS ;
   } in tree
 end
 
 let seek (tree : 'elt t) (key : 'elt) = 
 begin
-  let parent_field = ref tree.nodeR.lchild in 
-  let curr_field = ref tree.nodeS.lchild in 
+  let parent_field = ref ((Option.get tree.nodeR).lchild) in 
+  let curr_field = ref (Option.get tree.nodeS).lchild in 
   let cur_anc = ref tree.nodeR in 
   let cur_par = ref tree.nodeS in 
   let cur_succ = ref tree.nodeS in 
-  let cur_leaf = ref (Option.get (Stamped_Atomic.get_reference tree.nodeS.lchild)) in 
+  let cur_leaf = ref ((Stamped_Atomic.get_reference (Option.get tree.nodeS).lchild)) in 
 
   let rec locate () = 
     if (Stamped_Atomic.get_reference !curr_field = None) then () 
@@ -634,16 +637,16 @@ begin
           end ;
 
         cur_par := !cur_leaf ;
-        let curr = Option.get (Stamped_Atomic.get_reference !curr_field) in
+        let curr = (Stamped_Atomic.get_reference !curr_field) in
         cur_leaf := curr ;
         parent_field := !curr_field ; 
         
         let cmpval = 
-        begin match curr.key with 
+        begin match (Option.get curr).key with 
           | None -> -1 
           | Some v -> tree.compare key v 
         end in 
-        if cmpval < 0 then curr_field := curr.lchild else curr_field := curr.rchild ;
+        if cmpval < 0 then curr_field := (Option.get curr).lchild else curr_field := (Option.get curr).rchild ;
         locate () 
       end
   in locate () ;
@@ -656,14 +659,103 @@ begin
   sR
 end
 
-let cleanup (tree : 'elt t) (key : 'elt) (sR : 'elt seek_record) = false 
+let set_tag (stamp : int) = 
+begin 
+  if stamp = 0 then 1 (* 00 to 01 *)
+  else if stamp = 2 then 3 (* 10 to 11 *)
+  else stamp (* Tag bit is set already *)
+end
+
+let copy_flag (stamp : int) = 
+begin 
+  if stamp = 1 then 0 (* 01 to 00 *)
+  else if stamp = 3 then 2 (* 11 to 10 *)
+  else stamp (* Tag is toggled off already *)
+end
+
+let cleanup (tree : 'elt t) (key : 'elt) (sR : 'elt seek_record) =
+begin 
+  let ancestor = sR.ancestor in 
+  let parent = sR.parent in 
+  let sibling = ref None in 
+  let sibling_stamp = ref 0 in 
+
+  let cmpval = 
+    begin match (Option.get parent).key with
+    | None -> -1 
+    | Some v -> tree.compare key v 
+    end in
+  
+  if cmpval < 0 then 
+    begin 
+      if Stamped_Atomic.get_stamp (Option.get parent).lchild > 1 then 
+        begin 
+          sibling := Stamped_Atomic.get_reference (Option.get parent).rchild ;
+          sibling_stamp := Stamped_Atomic.get_stamp (Option.get parent).rchild ;
+          sibling_stamp := set_tag !sibling_stamp ;
+          ignore (Stamped_Atomic.attempt_stamp (Option.get parent).rchild !sibling !sibling_stamp) ;
+          sibling := Stamped_Atomic.get_reference (Option.get parent).rchild ;
+          sibling_stamp := Stamped_Atomic.get_stamp (Option.get parent).rchild ;
+        end
+      else 
+        begin 
+          sibling := Stamped_Atomic.get_reference (Option.get parent).lchild ;
+          sibling_stamp := Stamped_Atomic.get_stamp (Option.get parent).lchild ;
+          sibling_stamp := set_tag !sibling_stamp ;
+          ignore (Stamped_Atomic.attempt_stamp (Option.get parent).lchild !sibling !sibling_stamp) ;
+          sibling := Stamped_Atomic.get_reference (Option.get parent).lchild ;
+          sibling_stamp := Stamped_Atomic.get_stamp (Option.get parent).lchild ;
+        end
+    end
+  else 
+    begin 
+      if Stamped_Atomic.get_stamp (Option.get parent).rchild > 1 then 
+        begin 
+          sibling := Stamped_Atomic.get_reference (Option.get parent).lchild ;
+          sibling_stamp := Stamped_Atomic.get_stamp (Option.get parent).lchild ;
+          sibling_stamp := set_tag !sibling_stamp ;
+          ignore (Stamped_Atomic.attempt_stamp (Option.get parent).lchild !sibling !sibling_stamp) ;
+          sibling := Stamped_Atomic.get_reference (Option.get parent).lchild ;
+          sibling_stamp := Stamped_Atomic.get_stamp (Option.get parent).lchild ;
+        end
+      else 
+        begin 
+          sibling := Stamped_Atomic.get_reference (Option.get parent).rchild ;
+          sibling_stamp := Stamped_Atomic.get_stamp (Option.get parent).rchild ;
+          sibling_stamp := set_tag !sibling_stamp ;
+          ignore (Stamped_Atomic.attempt_stamp (Option.get parent).rchild !sibling !sibling_stamp) ;
+          sibling := Stamped_Atomic.get_reference (Option.get parent).rchild ;
+          sibling_stamp := Stamped_Atomic.get_stamp (Option.get parent).rchild ;
+        end
+    end ;
+  let cmpval = 
+    begin match (Option.get ancestor).key with
+    | None -> -1 
+    | Some v -> tree.compare key v 
+    end in 
+  if cmpval < 0 then 
+    begin 
+      sibling_stamp := copy_flag !sibling_stamp ;
+      (* let old_successor = Stamped_Atomic.get_reference (Option.get ancestor).lchild in
+      let old_stamp = Stamped_Atomic.get_stamp (Option.get ancestor).lchild in *)
+      let old_val = Stamped_Atomic.get (Option.get ancestor).lchild in 
+      Stamped_Atomic.compare_and_set ((Option.get ancestor).lchild) old_val.value !sibling old_val.stamp !sibling_stamp 
+    end
+  else 
+    begin 
+      sibling_stamp := copy_flag !sibling_stamp ;
+      (* let old_successor = Stamped_Atomic.get_reference (Option.get ancestor).rchild in *)
+      let old_val = Stamped_Atomic.get (Option.get ancestor).rchild in 
+      Stamped_Atomic.compare_and_set ((Option.get ancestor).rchild) old_val.value !sibling old_val.stamp !sibling_stamp 
+    end
+end
 
 let insert (tree : 'elt t) (key : 'elt) = 
 begin
   let rec loop () = 
     let nthChild = ref (-1) in 
     let pnode = ref tree.nodeS in 
-    let node = ref ((Stamped_Atomic.get_reference tree.nodeS.lchild)) in
+    let node = ref ((Stamped_Atomic.get_reference (Option.get tree.nodeS).lchild)) in
 
     let rec locate () = 
       begin
@@ -677,12 +769,12 @@ begin
             end in 
             if cmpval < 0 then
               begin 
-                pnode := (Option.get !node) ; 
+                pnode := (!node) ; 
                 node := (Stamped_Atomic.get_reference ((Option.get !node).lchild)) ;
               end
             else 
               begin 
-                pnode := (Option.get !node) ; 
+                pnode := (!node) ; 
                 node := (Stamped_Atomic.get_reference ((Option.get !node).rchild)) ;
               end ;
             locate ()
@@ -691,7 +783,7 @@ begin
     in locate () ;
     let old_child = (!node) in 
     let cmpval = 
-    begin match (!pnode.key) with 
+    begin match (Option.get !pnode).key with 
       | None -> -1 
       | Some v -> tree.compare key v 
     end in 
@@ -705,13 +797,13 @@ begin
     else 
       let cmpval = 
       begin match (Option.get !node).key with 
-      | None -> -1 
-      | Some v -> tree.compare key v 
+      | None -> 1 
+      | Some v -> tree.compare v key 
       end in 
 
       let leaf_node = {key = Some key ; lchild = Stamped_Atomic.make None ; rchild = Stamped_Atomic.make None} in 
       let internal_node = 
-        if cmpval > 0 then Some {
+        if cmpval < 0 then Some {
           key = Some key ; 
           lchild = Stamped_Atomic.make !node ;
           rchild = Stamped_Atomic.make (Some leaf_node) ;
@@ -724,34 +816,128 @@ begin
       
       if !nthChild = 0 then 
         begin 
-          let result = Stamped_Atomic.compare_and_set (!pnode.lchild) old_child internal_node 0 0 in 
+          let result = Stamped_Atomic.compare_and_set ((Option.get !pnode).lchild) old_child internal_node 0 0 in 
           if result then ()
           else 
             begin 
-              if !node == Stamped_Atomic.get_reference !pnode.lchild then 
-                let sR = seek tree key in ignore(cleanup tree key sR)
-            end ;
+              if !node == Stamped_Atomic.get_reference (Option.get !pnode).lchild then 
+                begin
+                let sR = seek tree key in ignore(cleanup tree key sR) ;
+                loop ()
+                end
+              else loop ()
+            end 
         end
       else 
         begin
-          let result = Stamped_Atomic.compare_and_set (!pnode.rchild) old_child internal_node 0 0 in 
+          let result = Stamped_Atomic.compare_and_set ((Option.get !pnode).rchild) old_child internal_node 0 0 in 
           if result then ()
           else 
             begin 
-              if !node == Stamped_Atomic.get_reference !pnode.rchild then 
-                let sR = seek tree key in ignore(cleanup tree key sR) 
-            end ;
-        end ;
-      loop ()
+              if !node == Stamped_Atomic.get_reference (Option.get !pnode).rchild then 
+                begin
+                let sR = seek tree key in ignore(cleanup tree key sR) ;
+                loop ()
+                end
+              else loop ()
+            end 
+        end 
   in loop ()     
 end
 
-let add tree key = insert tree key
+let search (tree : 'elt t) (key : 'elt) = 
+begin
+  let node = ref tree.nodeR in 
+  let rec locate () = 
+    if Stamped_Atomic.get_reference (Option.get !node).lchild = None then () 
+    else 
+      begin
+        let cmpval = 
+          begin match (Option.get !node).key with 
+          | None -> -1 
+          | Some v -> tree.compare key v 
+          end in 
+        if cmpval < 0 then node := (Stamped_Atomic.get_reference (Option.get !node).lchild)
+        else node := (Stamped_Atomic.get_reference (Option.get !node).rchild) ;
+        locate ()
+      end 
+    in 
+  locate () ;
+  let cmpval = 
+    begin match (Option.get !node).key with 
+    | None -> false
+    | Some v -> tree.compare key v = 0 
+    end in 
+  cmpval
+end
 
-let find (_tree : 'elt t) (_key : 'elt) = false 
+let delete (tree : 'elt t) (key : 'elt) = 
+begin 
+  let is_cleanup = ref false in 
+  let leaf = ref tree.nodeR in 
+  let rec loop () = 
+    let sR = seek tree key in 
+    if not !is_cleanup then 
+      begin 
+        leaf := sR.leaf ;
+        let cmpval = 
+        begin match (Option.get !leaf).key with 
+        | None -> false 
+        | Some v -> tree.compare key v = 0 
+        end in 
+        if not cmpval then ()
+        else 
+          begin
+            let parent = sR.parent in 
+            let cmpval = 
+              begin match (Option.get parent).key with 
+              | None -> -1 
+              | Some v -> tree.compare key v
+              end in 
+            if cmpval < 0 then 
+              begin 
+                let result = Stamped_Atomic.compare_and_set (Option.get parent).lchild !leaf !leaf 0 2 in 
+                if result then 
+                  begin 
+                    is_cleanup := true ;
+                    let clean_done = cleanup tree key sR in 
+                    if clean_done then () else loop ()
+                  end
+                else 
+                  begin 
+                    if !leaf == Stamped_Atomic.get_reference (Option.get parent).lchild then ignore (cleanup tree key sR) ; 
+                    loop ()
+                  end
+              end
+            else
+              begin
+              let result = Stamped_Atomic.compare_and_set (Option.get parent).rchild !leaf !leaf 0 2 in 
+              if result then 
+                begin
+                  is_cleanup := true ;
+                  let clean_done = cleanup tree key sR in 
+                  if clean_done then () else loop ()
+                end   
+              else 
+                begin
+                  if !leaf == Stamped_Atomic.get_reference (Option.get parent).rchild then ignore (cleanup tree key sR) ; 
+                  loop ()
+                end
+              end 
+          end
+      end 
+    else 
+      begin 
+        if sR.leaf == !leaf then 
+          begin 
+            let clean_done = cleanup tree key sR in 
+            if clean_done then () else loop ()
+          end 
+        else ()
+      end
+  in 
+  loop ()
+end
 
-let remove (_tree : 'elt t) (_key : 'elt) = false 
-
-let print_tree (_tree : 'elt t) (_printfn : 'elt -> unit) = ()
       
 
