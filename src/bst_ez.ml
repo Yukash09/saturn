@@ -559,6 +559,29 @@ type 'elt t = {
   nodeS : 'elt node ;
 }
 
+let to_plist tree =
+  let rec inorder_helper node depth acc =
+    let left = Stamped_Atomic.get_reference node.lchild in
+    let right = Stamped_Atomic.get_reference node.rchild in
+    
+    match left, right with 
+    | None, None -> 
+      begin match node.key with
+      | None -> acc
+      | Some v -> acc @ [(v, depth)]
+      end
+    | Some lnode, None -> inorder_helper lnode (depth + 1) acc
+    | None, Some rnode -> inorder_helper rnode (depth + 1) acc
+    | Some lnode, Some rnode ->
+      begin
+        let leftacc = inorder_helper lnode (depth + 1) acc in
+        inorder_helper rnode (depth + 1) leftacc
+      end
+    in
+  inorder_helper (tree.nodeR) 0 []
+
+let to_list tree = List.fold_left (fun acc (x, _) -> acc @ [x]) [] (to_plist tree)
+
 let create ~(compare:'elt -> 'elt -> int) () = 
 begin
   let nodeS = {
@@ -673,7 +696,12 @@ begin
       | Some v -> tree.compare key v 
     end in 
     if cmpval < 0 then nthChild := 0 else nthChild := 1 ;
-    if tree.compare (Option.get (Option.get !node).key) key = 0 then () 
+    let cmpval = 
+      match (Option.get !node).key with
+      | None -> false
+      | Some v -> tree.compare v key = 0
+    in
+    if cmpval then () 
     else 
       let cmpval = 
       begin match (Option.get !node).key with 
@@ -718,7 +746,12 @@ begin
   in loop ()     
 end
 
-let add tree key = insert tree key 
+let add tree key = insert tree key
 
+let find (_tree : 'elt t) (_key : 'elt) = false 
+
+let remove (_tree : 'elt t) (_key : 'elt) = false 
+
+let print_tree (_tree : 'elt t) (_printfn : 'elt -> unit) = ()
       
 

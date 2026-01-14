@@ -310,14 +310,14 @@ let () =
     [
       ( "basic",
         [
-          (* test_case "2-disjoint-insert" `Slow insert_insert ; *)
-          (* test_case "2-insert-duplicates" `Slow insert_insert_duplicates ; *)
+          test_case "2-disjoint-insert" `Slow insert_insert ;
+          test_case "2-insert-duplicates" `Slow insert_insert_duplicates ;
           (* test_case "1-insert-1-search" `Slow insert_search ; *)
           (* test_case "2-insert-balanced" `Slow insert_insert_balanced ; *)
           (* test_case "1-insert-1-search-balanced" `Slow insert_search_balanced ; *)
           (* test_case "1-insert-1-remove" `Slow insert_remove ; *)
           (* test_case "1-insert-1-remove-1-search-balanced" `Slow insert_remove_search_balanced ; *)
-          test_case "1-remove-1-remove" `Slow remove_remove ; 
+          (* test_case "1-remove-1-remove" `Slow remove_remove ;  *)
           (* test_case "1-remove-1-insert" `Slow remove_insert ; *)
           (* test_case "1-remove-1-search" `Slow remove_search ; *)
         ]
