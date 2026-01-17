@@ -582,6 +582,58 @@ let to_plist tree =
 
 let to_list tree = List.fold_left (fun acc (x, _) -> acc @ [x]) [] (to_plist tree)
 
+let print_childopt child (printfn :'elt -> unit) = 
+  let cnodeopt, cstamp = Stamped_Atomic.get_reference child, Stamped_Atomic.get_stamp child in
+  print_string "Stamp: "; print_int cstamp; print_endline "";
+  print_string "Node: ";
+  match cnodeopt with
+  | None -> print_endline "Null node"
+  | Some {key; _} -> 
+    begin
+      match key with
+      | None -> print_endline "inf"
+      | Some v -> printfn v; print_endline ""
+    end 
+
+let print_node node (printfn :'elt -> unit) = 
+  let {key; lchild; rchild} = node in
+  print_string "Key: ";
+  match key with
+  | None -> print_endline "inf"
+  | Some v -> printfn v; print_endline ""
+  ;
+  print_endline "lchild:" ; print_childopt lchild printfn;
+  print_endline "rchild:" ; print_childopt rchild printfn;
+  ()
+
+let print_tree (tree : 'elt t) (printfn : 'elt -> unit) = 
+  let rec traverse (node : 'elt node) depth = 
+    (* Print current node information *)
+    print_string "Depth "; print_int depth; print_string ": ";
+    print_node node printfn;
+    print_endline "---";
+    
+    (* Get children *)
+    let left = Stamped_Atomic.get_reference node.lchild in 
+    let right = Stamped_Atomic.get_reference node.rchild in 
+    
+    (* Traverse left child if it exists *)
+    (match left with 
+     | None -> ()
+     | Some lnode -> traverse lnode (depth + 1)
+    );
+    
+    (* Traverse right child if it exists *)
+    (match right with 
+     | None -> ()
+     | Some rnode -> traverse rnode (depth + 1)
+    )
+  in 
+  print_endline "=== Tree Structure ===";
+  traverse (tree.nodeR) 0;
+  print_endline "Print complete"
+
+
 let create ~(compare:'elt -> 'elt -> int) () = 
 begin
   let nodeS = {
@@ -696,7 +748,12 @@ begin
       | Some v -> tree.compare key v 
     end in 
     if cmpval < 0 then nthChild := 0 else nthChild := 1 ;
-    if tree.compare (Option.get (Option.get !node).key) key = 0 then () 
+    let cmpval = 
+      match (Option.get !node).key with
+      | None -> false
+      | Some v -> tree.compare v key = 0
+    in
+    if cmpval then () 
     else 
       let cmpval = 
       begin match (Option.get !node).key with 
